@@ -265,39 +265,6 @@
             margin-bottom: 10px;
         }
 
-        .pattern-popup {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background-color: rgba(50, 50, 50, 0.9);
-            border: 3px solid white;
-            border-radius: 10px;
-            padding: 30px;
-            text-align: center;
-            z-index: 1000;
-        }
-
-        .pattern-title {
-            color: rgb(255, 255, 100);
-            font-size: 28px;
-            margin-bottom: 20px;
-        }
-
-        .pattern-option {
-            font-size: 24px;
-            color: white;
-            margin: 10px 0;
-            padding: 10px;
-            cursor: pointer;
-            border-radius: 5px;
-            transition: background-color 0.2s;
-        }
-
-        .pattern-option:hover {
-            background-color: rgba(255, 255, 255, 0.2);
-        }
-
         .pause-stats {
             margin-top: 20px;
             font-size: 20px;
@@ -477,6 +444,7 @@
         <div class="overlay-bg"></div>
         <div class="title">GAME OVER</div>
         <div class="subtitle" id="finalScore">Final Score: 0</div>
+        <div class="hint-text" id="bonusText" style="color: gold; font-size: 24px;"></div>
         <div class="button-container">
             <button class="game-button green-button" onclick="restartGame()">RESTART</button>
             <button class="game-button blue-button" onclick="changeAlliance()">CHANGE ALLIANCE</button>
@@ -497,14 +465,6 @@
                 <button class="game-button red-button" onclick="cancelPassword()">CANCEL</button>
             </div>
         </div>
-    </div>
-
-    <!-- Pattern Selection Popup -->
-    <div id="patternPopup" class="pattern-popup hidden">
-        <div class="pattern-title">Select pattern:</div>
-        <div class="pattern-option" onclick="selectPattern('GPP')">1: GPP</div>
-        <div class="pattern-option" onclick="selectPattern('PPG')">2: PPG</div>
-        <div class="pattern-option" onclick="selectPattern('PGP')">3: PGP</div>
     </div>
 
     <script>
@@ -548,7 +508,6 @@
             gameActive: false,
             gameOver: false,
             pauseMenuVisible: false,
-            selectionActive: false,
             backgroundFrozen: false,
             passwordActive: false,
             passwordCorrect: false,
@@ -589,12 +548,12 @@
             color: WHITE
         };
 
-        // Patterns
+        // Patterns - Randomly selected at game start
         const patterns = ["GPP", "PPG", "PGP"];
         let currentMotif = patterns[Math.floor(Math.random() * patterns.length)];
 
-        // Artifacts - ORIGINAL SIZE
-        let collectibles = [];
+        // Artifacts - STORED AS CIRCLES NOW
+        let collectibles = []; // Will store {x, y, radius}
         let collectibleTypes = [];
         let inventory = [];
 
@@ -617,17 +576,20 @@
         // Base zones - FIXED: PROPERLY SEPARATED
         const borderSize = 160;
         const redBase = { 
-            x: borderSize + 100,  // Moved left, NOT touching center
+            x: borderSize + 100,
             y: WINDOW_HEIGHT - borderSize - 100,
             width: 100,
             height: 100
         };
         const blueBase = { 
-            x: WINDOW_WIDTH - borderSize - 200,  // Moved right, NOT touching center
+            x: WINDOW_WIDTH - borderSize - 200,
             y: WINDOW_HEIGHT - borderSize - 100,
             width: 100,
             height: 100
         };
+
+        // Track if player has already received triangle zone points - FIXED: Now resets after each deposit
+        let canScoreInTriangle = true;
 
         // Initialize game
         function init() {
@@ -772,31 +734,66 @@
             collector.x = Math.max(0, Math.min(collector.x, WINDOW_WIDTH - collector.width));
             collector.y = Math.max(0, Math.min(collector.y, WINDOW_HEIGHT - collector.height));
 
-            // Collect artifacts
+            // Collect artifacts - UPDATED FOR CIRCLE COLLISION
             for (let i = collectibles.length - 1; i >= 0; i--) {
-                if (collision(collector, collectibles[i]) && inventory.length < 3) {
+                const artifact = collectibles[i];
+                // Circle-rectangle collision detection
+                const closestX = Math.max(collector.x, Math.min(artifact.x, collector.x + collector.width));
+                const closestY = Math.max(collector.y, Math.min(artifact.y, collector.y + collector.height));
+                const distanceX = artifact.x - closestX;
+                const distanceY = artifact.y - closestY;
+                const distanceSquared = (distanceX * distanceX) + (distanceY * distanceY);
+                
+                if (distanceSquared < (artifact.radius * artifact.radius) && inventory.length < 3) {
                     inventory.push(collectibleTypes[i]);
                     collectibles.splice(i, 1);
                     collectibleTypes.splice(i, 1);
                 }
             }
 
-            // Check for triangle zone (for pattern selection)
-            if (!gameState.selectionActive && inventory.length > 0) {
-                const triangleSize = 180;
-                if (team === "BLUE") {
-                    const triangleRect = { x: 0, y: 0, width: triangleSize, height: triangleSize };
-                    if (collision(collector, triangleRect)) {
-                        gameState.selectionActive = true;
-                        document.getElementById('patternPopup').classList.remove('hidden');
-                    }
-                } else if (team === "RED") {
-                    const triangleRect = { x: WINDOW_WIDTH - triangleSize, y: 0, width: triangleSize, height: triangleSize };
-                    if (collision(collector, triangleRect)) {
-                        gameState.selectionActive = true;
-                        document.getElementById('patternPopup').classList.remove('hidden');
-                    }
+            // Check for triangle zone - AUTOMATIC POINTS (no menu)
+            const triangleSize = 180;
+            let inTriangleZone = false;
+            
+            if (team === "BLUE") {
+                const triangleRect = { x: 0, y: 0, width: triangleSize, height: triangleSize };
+                inTriangleZone = collision(collector, triangleRect);
+            } else if (team === "RED") {
+                const triangleRect = { x: WINDOW_WIDTH - triangleSize, y: 0, width: triangleSize, height: triangleSize };
+                inTriangleZone = collision(collector, triangleRect);
+            }
+            
+            // FIXED: Give points when in triangle zone (can happen multiple times)
+            if (inTriangleZone && canScoreInTriangle && inventory.length > 0) {
+                // Calculate points based on inventory matching motif
+                const inventoryPattern = inventory.join('');
+                
+                if (inventoryPattern === currentMotif) {
+                    // Correct pattern - add points
+                    score += 15; // 9 for artifacts + 6 for correct pattern
+                } else {
+                    // Wrong pattern - still get points for artifacts
+                    score += 9; // Just the artifact points
                 }
+                
+                // Respawn artifacts in black boxes as circles
+                for (let i = 0; i < inventory.length; i++) {
+                    const zone = Math.random() < 0.5 ? 
+                        { x: 0, y: WINDOW_HEIGHT - borderSize, width: borderSize, height: borderSize } : 
+                        { x: WINDOW_WIDTH - borderSize, y: WINDOW_HEIGHT - borderSize, width: borderSize, height: borderSize };
+                    
+                    const pad = 25; // Increased padding for circles
+                    const radius = 20; // Circle radius
+                    const x = zone.x + pad + radius + Math.random() * (zone.width - radius * 2 - pad * 2);
+                    const y = zone.y + pad + radius + Math.random() * (zone.height - radius * 2 - pad * 2);
+                    
+                    collectibles.push({ x, y, radius: radius });
+                    collectibleTypes.push(inventory[i]);
+                }
+                
+                // Clear inventory and allow scoring again
+                inventory = [];
+                canScoreInTriangle = true; // Reset for next time
             }
 
             // Update game time
@@ -889,16 +886,28 @@
             ctx.strokeStyle = WHITE;
             ctx.strokeRect(blueBase.x, blueBase.y, blueBase.width, blueBase.height);
 
-            // Artifacts - NO LETTERS, just colored squares
+            // Artifacts - NOW CIRCLES INSTEAD OF SQUARES
             for (let i = 0; i < collectibles.length; i++) {
+                const artifact = collectibles[i];
                 ctx.fillStyle = collectibleTypes[i] === "G" ? GREEN : PURPLE;
-                ctx.fillRect(collectibles[i].x, collectibles[i].y, collectibles[i].width, collectibles[i].height);
+                ctx.beginPath();
+                ctx.arc(artifact.x, artifact.y, artifact.radius, 0, Math.PI * 2);
+                ctx.fill();
                 ctx.strokeStyle = WHITE;
                 ctx.lineWidth = 2;
-                ctx.strokeRect(collectibles[i].x, collectibles[i].y, collectibles[i].width, collectibles[i].height);
+                ctx.beginPath();
+                ctx.arc(artifact.x, artifact.y, artifact.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // Add a subtle inner circle for depth
+                ctx.fillStyle = collectibleTypes[i] === "G" ? 
+                    'rgba(255, 255, 200, 0.3)' : 'rgba(255, 200, 255, 0.3)';
+                ctx.beginPath();
+                ctx.arc(artifact.x, artifact.y, artifact.radius * 0.7, 0, Math.PI * 2);
+                ctx.fill();
             }
 
-            // Collector
+            // Collector (stays square/rectangular)
             ctx.fillStyle = collector.color;
             ctx.fillRect(collector.x, collector.y, collector.width, collector.height);
             ctx.strokeStyle = DARK_GREY;
@@ -910,6 +919,17 @@
             ctx.beginPath();
             ctx.arc(collector.x + collector.width / 2, collector.y + collector.height / 2, 12, 0, Math.PI * 2);
             ctx.fill();
+            
+            // Show triangle zone status if player has artifacts
+            if (inventory.length > 0 && canScoreInTriangle) {
+                // Draw glow effect around collector when can score in triangle
+                ctx.strokeStyle = team === "RED" ? RED : BLUE;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(collector.x + collector.width / 2, collector.y + collector.height / 2, 
+                       collector.width + 10, 0, Math.PI * 2);
+                ctx.stroke();
+            }
         }
 
         function drawHUD() {
@@ -934,6 +954,12 @@
             ctx.fillText(`Motif: ${currentMotif}`, 20, 140);
             ctx.fillText(`Team: ${team}`, 20, 180);
             
+            // Show triangle zone hint
+            if (inventory.length > 0 && canScoreInTriangle) {
+                ctx.fillStyle = team === "RED" ? RED : BLUE;
+                ctx.fillText(`Go to ${team} triangle to score!`, 20, 220);
+            }
+            
             // TAB hint
             ctx.textAlign = "right";
             ctx.fillStyle = GOLD;
@@ -947,33 +973,33 @@
             collectibles = [];
             collectibleTypes = [];
             
-            const artifactSize = 40;
+            const artifactRadius = 20; // Circle radius instead of square size
             const borderSize = 160;
             
             // Right side patterns
             const patternsRight = [["G","P","P"], ["P","G","P"], ["P","P","G"]];
-            const baseXRight = WINDOW_WIDTH - borderSize + 20;
+            const baseXRight = WINDOW_WIDTH - borderSize + 40; // Adjusted for circles
             const baseYRight = WINDOW_HEIGHT - borderSize - 60;
             
             for (let row = 0; row < patternsRight.length; row++) {
                 for (let col = 0; col < patternsRight[row].length; col++) {
-                    const x = baseXRight + col * (artifactSize + 5);
-                    const y = baseYRight - row * (artifactSize + 10);
-                    collectibles.push({ x, y, width: artifactSize, height: artifactSize });
+                    const x = baseXRight + col * (artifactRadius * 2 + 15);
+                    const y = baseYRight - row * (artifactRadius * 2 + 15);
+                    collectibles.push({ x, y, radius: artifactRadius });
                     collectibleTypes.push(patternsRight[row][col]);
                 }
             }
             
             // Left side patterns
             const patternsLeft = [["P","P","G"], ["P","G","P"], ["G","P","P"]];
-            const baseXLeft = 20;
+            const baseXLeft = 40; // Adjusted for circles
             const baseYLeft = WINDOW_HEIGHT - borderSize - 60;
             
             for (let row = 0; row < patternsLeft.length; row++) {
                 for (let col = 0; col < patternsLeft[row].length; col++) {
-                    const x = baseXLeft + col * (artifactSize + 5);
-                    const y = baseYLeft - row * (artifactSize + 10);
-                    collectibles.push({ x, y, width: artifactSize, height: artifactSize });
+                    const x = baseXLeft + col * (artifactRadius * 2 + 15);
+                    const y = baseYLeft - row * (artifactRadius * 2 + 15);
+                    collectibles.push({ x, y, radius: artifactRadius });
                     collectibleTypes.push(patternsLeft[row][col]);
                 }
             }
@@ -1066,6 +1092,7 @@
             // Update game over score
             if (gameState.gameOver) {
                 document.getElementById('finalScore').textContent = `Final Score: ${score}`;
+                document.getElementById('bonusText').textContent = `+18 Bonus Points Added!`;
             }
         }
 
@@ -1122,14 +1149,12 @@
             inventory = [];
             gameState.selectionActive = false;
             currentMotif = patterns[Math.floor(Math.random() * patterns.length)];
+            canScoreInTriangle = true; // Reset triangle scoring
             setupCollectibles();
             
             // Reset collector position
             collector.x = WINDOW_WIDTH / 2 - collectorSize / 2;
             collector.y = WINDOW_HEIGHT / 2 - collectorSize / 2;
-            
-            // Hide pattern popup if visible
-            document.getElementById('patternPopup').classList.add('hidden');
         }
 
         function changeAlliance() {
@@ -1145,6 +1170,7 @@
             inventory = [];
             gameState.selectionActive = false;
             currentMotif = patterns[Math.floor(Math.random() * patterns.length)];
+            canScoreInTriangle = true; // Reset triangle scoring
             setupCollectibles();
             
             // Reset timers
@@ -1152,9 +1178,6 @@
                 screenTimers[key] = 0;
             }
             introStartTime = null;
-            
-            // Hide pattern popup if visible
-            document.getElementById('patternPopup').classList.add('hidden');
         }
 
         function changeMode() {
@@ -1173,6 +1196,7 @@
             inventory = [];
             gameState.selectionActive = false;
             currentMotif = patterns[Math.floor(Math.random() * patterns.length)];
+            canScoreInTriangle = true; // Reset triangle scoring
             setupCollectibles();
             
             // Reset timers
@@ -1180,9 +1204,6 @@
                 screenTimers[key] = 0;
             }
             introStartTime = null;
-            
-            // Hide pattern popup if visible
-            document.getElementById('patternPopup').classList.add('hidden');
         }
 
         function quitGame() {
@@ -1204,34 +1225,9 @@
                     score += 10;
                 }
             }
-        }
-
-        function selectPattern(pattern) {
-            document.getElementById('patternPopup').classList.add('hidden');
-            gameState.selectionActive = false;
             
-            // Scoring logic
-            score += inventory.length * 3;
-            if (pattern === currentMotif) {
-                score += 6;
-            }
-            
-            // Respawn artifacts in black boxes
-            for (let i = 0; i < inventory.length; i++) {
-                const zone = Math.random() < 0.5 ? 
-                    { x: 0, y: WINDOW_HEIGHT - borderSize, width: borderSize, height: borderSize } : 
-                    { x: WINDOW_WIDTH - borderSize, y: WINDOW_HEIGHT - borderSize, width: borderSize, height: borderSize };
-                
-                const pad = 20;
-                const x = zone.x + pad + Math.random() * (zone.width - 40 - pad * 2);
-                const y = zone.y + pad + Math.random() * (zone.height - 40 - pad * 2);
-                
-                collectibles.push({ x, y, width: 40, height: 40 });
-                collectibleTypes.push(inventory[i]);
-            }
-            
-            inventory = [];
-            currentMotif = patterns[Math.floor(Math.random() * patterns.length)];
+            // ADD 18 POINTS NO MATTER WHAT
+            score += 18;
         }
 
         // Password functions
@@ -1307,12 +1303,6 @@
                     e.preventDefault();
                     gameState.pauseMenuVisible = !gameState.pauseMenuVisible;
                     timePaused = gameState.pauseMenuVisible;
-                }
-                
-                // Pattern selection with 1, 2, 3 keys
-                if (gameState.selectionActive && ['1', '2', '3'].includes(key)) {
-                    const patternMap = { '1': 'GPP', '2': 'PPG', '3': 'PGP' };
-                    selectPattern(patternMap[key]);
                 }
             }
         });
