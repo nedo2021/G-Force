@@ -30,7 +30,7 @@
 
         #loadingOverlay, #ftcOverlay, #allianceOverlay, #controlsOverlay1, 
         #controlsOverlay2, #controlsOverlay3, #pauseOverlay, #gameOverOverlay, 
-        #passwordOverlay {
+        #passwordOverlay, #youtubeOverlay {
             position: absolute;
             top: 0;
             left: 0;
@@ -289,6 +289,14 @@
         #ftcImage:hover {
             transform: scale(1.02);
         }
+
+        #youtubeFrame {
+            width: 90%;
+            max-width: 800px;
+            height: 450px;
+            border: 5px solid gold;
+            border-radius: 15px;
+        }
     </style>
 </head>
 <body>
@@ -334,7 +342,7 @@
         </div>
     </div>
 
-    <!-- Controls Screens -->
+    <!-- Controls Screens (REMOVED MOTIF CONTROLS) -->
     <div id="controlsOverlay1" class="hidden">
         <div class="overlay-bg"></div>
         <div class="title">MOVEMENT CONTROLS</div>
@@ -368,21 +376,7 @@
         <div class="title">GAME CONTROLS</div>
         <div class="subtitle">Essential Keys for Gameplay</div>
         <div class="controls-container">
-            <div class="control-item">
-                <div class="key-label">1 KEY</div>
-                <div class="arrow">→</div>
-                <div class="action-label">Select GPP Pattern</div>
-            </div>
-            <div class="control-item">
-                <div class="key-label">2 KEY</div>
-                <div class="arrow">→</div>
-                <div class="action-label">Select PPG Pattern</div>
-            </div>
-            <div class="control-item">
-                <div class="key-label">3 KEY</div>
-                <div class="arrow">→</div>
-                <div class="action-label">Select PGP Pattern</div>
-            </div>
+            <!-- REMOVED 1, 2, 3 KEY CONTROLS -->
             <div class="control-item">
                 <div class="key-label">TAB KEY</div>
                 <div class="arrow">→</div>
@@ -467,6 +461,23 @@
         </div>
     </div>
 
+    <!-- YouTube Overlay (Rickroll) -->
+    <div id="youtubeOverlay" class="hidden">
+        <div class="overlay-bg"></div>
+        <div class="title">DEVELOPER ACCESS GRANTED</div>
+        <div class="subtitle">Enjoy this special content!</div>
+        <iframe id="youtubeFrame" 
+                src=""
+                title="YouTube video player" 
+                frameborder="0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                allowfullscreen>
+        </iframe>
+        <div class="hint-text" style="margin-top: 20px;">
+            <button class="game-button red-button" onclick="closeYouTube()">CLOSE VIDEO</button>
+        </div>
+    </div>
+
     <script>
         // Canvas setup - ORIGINAL RATIO
         const canvas = document.getElementById('gameCanvas');
@@ -511,7 +522,8 @@
             backgroundFrozen: false,
             passwordActive: false,
             passwordCorrect: false,
-            showPasswordPrompt: false
+            showPasswordPrompt: false,
+            showYouTube: false
         };
 
         // Timer variables
@@ -569,9 +581,12 @@
             d: false
         };
 
-        // Secure password (simplified for web)
-        const DEVELOPER_PASSWORD = "DEV19013!@#123";
+        // Password is "password" (all lowercase)
+        const DEVELOPER_PASSWORD = "password";
         let passwordInput = "";
+
+        // YouTube Rickroll URL
+        const YOUTUBE_URL = "https://www.youtube.com/embed/xvFZjo5PgG0?autoplay=1";
 
         // Base zones - FIXED: PROPERLY SEPARATED
         const borderSize = 160;
@@ -1078,6 +1093,7 @@
             document.getElementById('pauseOverlay').classList.toggle('hidden', !gameState.pauseMenuVisible);
             document.getElementById('gameOverOverlay').classList.toggle('hidden', !gameState.gameOver);
             document.getElementById('passwordOverlay').classList.toggle('hidden', !gameState.showPasswordPrompt);
+            document.getElementById('youtubeOverlay').classList.toggle('hidden', !gameState.showYouTube);
             
             // Update pause stats
             if (gameState.pauseMenuVisible) {
@@ -1230,21 +1246,42 @@
             score += 18;
         }
 
+        // YouTube functions
+        function openYouTube() {
+            gameState.showYouTube = true;
+            gameState.backgroundFrozen = true;
+            document.getElementById('youtubeFrame').src = YOUTUBE_URL;
+        }
+
+        function closeYouTube() {
+            gameState.showYouTube = false;
+            gameState.backgroundFrozen = false;
+            document.getElementById('youtubeFrame').src = "";
+        }
+
         // Password functions
         function submitPassword() {
             const input = document.getElementById('passwordInput');
-            if (input.value === DEVELOPER_PASSWORD) {
-                gameState.passwordCorrect = true;
-                updateLoadingScreen();
+            // Password is "password" (all lowercase)
+            if (input.value.toLowerCase() === "password") {
+                // Show YouTube rickroll instead of skipping intro
+                openYouTube();
+            } else {
+                // Wrong password - clear and show error
+                input.value = "";
+                input.placeholder = "Wrong password! Try again...";
+                input.style.borderColor = "red";
+                setTimeout(() => {
+                    input.placeholder = "Enter password...";
+                    input.style.borderColor = "rgb(100, 150, 255)";
+                }, 2000);
             }
-            input.value = "";
-            gameState.showPasswordPrompt = false;
-            gameState.passwordActive = false;
-            gameState.backgroundFrozen = false;
         }
 
         function cancelPassword() {
             document.getElementById('passwordInput').value = "";
+            document.getElementById('passwordInput').placeholder = "Enter password...";
+            document.getElementById('passwordInput').style.borderColor = "rgb(100, 150, 255)";
             gameState.showPasswordPrompt = false;
             gameState.passwordActive = false;
             gameState.backgroundFrozen = false;
@@ -1255,7 +1292,7 @@
             const key = e.key.toLowerCase();
             
             // Developer password access
-            if (key === 'p' && !gameState.gameActive && !gameState.passwordActive) {
+            if (key === 'p' && !gameState.gameActive && !gameState.passwordActive && !gameState.showYouTube) {
                 gameState.passwordActive = true;
                 gameState.showPasswordPrompt = true;
                 gameState.backgroundFrozen = true;
